@@ -26,7 +26,7 @@ jobs:
           docker push registry.digitalocean.com/${REGISTRY_NAME}/node-app:${GITHUB_SHA::8}
 
       - name: Save DigitalOcean kubeconfig
-        run: doctl kubernetes cluster kubeconfig save node-js-registry
+        run: doctl kubernetes cluster kubeconfig save nodejscluster
 
       - name: Update deployment file
         env:

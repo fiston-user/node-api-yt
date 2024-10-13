@@ -37,7 +37,7 @@ jobs:
       - name: Install Cert Manager
         run: |
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
-          kubectl wait --for=condition=Ready -n cert-manager --all --timeout=300s
+          kubectl wait --for=condition=Ready pods -n cert-manager --all --timeout=300s
 
       - name: Wait for cert-manager
         run: |
@@ -99,7 +99,7 @@ jobs:
       - name: Check node-app logs
         if: failure()
         run: |
-          kubectl logs -l app=node-app --tail=
+          kubectl logs -l app=node-app --tail=100
 
       - name: Diagonstic Information
         if: failure()

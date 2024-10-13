@@ -91,10 +91,28 @@ jobs:
 
       - name: Check deployment status
         run: |
-          kubectl rollout status deployment/node-app
+          kubectl rollout status deployment/node-app --timeout=300s
           kubectl get pods
           kubectl get services
           kubectl get ingress
+
+      - name: Diagnose Deployment Status
+        if: failure()
+        run: |
+          echo "Deployment failed. Check the logs for more information."
+          kubectl rollout status deployment/node-app
+          echo "Pod Details:"
+          kubectl get pods -l app=node-app -o wide
+          echo "Pod Logs:"
+          kubectl logs -l app=node-app --all-containers --tail=100
+          echo "Pod Events":
+          kubectl get events --field-selector involvedObject.kind=Pod
+          echo "Deployment Details:"
+          kubectl describe deployment node-app
+          echo "Node Status"
+          kubectl get nodes
+          echo "Persitent Volume Status"
+          kubectl get pv,pvc
 
       - name: Check node-app logs
         if: failure()

@@ -1,0 +1,110 @@
+name: Deploy to DigitalOcean Kubernetes
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to the DigitalOcean Container Registry
+        run: doctl registry login --expiry-seconds 600
+
+      - name: Build and push container image
+        env:
+          REGISTRY_NAME: node-js-registry
+        run: |
+          docker build -t registry.digitalocean.com/${REGISTRY_NAME}/node-app:${GITHUB_SHA::8} .
+          docker push registry.digitalocean.com/${REGISTRY_NAME}/node-app:${GITHUB_SHA::8}
+
+      - name: Save DigitalOcean kubeconfig
+        run: doctl kubernetes cluster kubeconfig save node-js-registry
+
+      - name: Update deployment file
+        env:
+          REGISTRY_NAME: node-js-registry
+        run: |
+          sed -i 's|image: registry.digitalocean.com/${REGISTRY_NAME}/node-app:.*|image: registry.digitalocean.com/${REGISTRY_NAME}/node-app:'${GITHUB_SHA::8}'|' k8s/deployment.yaml
+
+      - name: Install Cert Manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+          kubectl wait --for=condition=Ready -n cert-manager --all --timeout=300s
+
+      - name: Wait for cert-manager
+        run: |
+          kubectl wait --for=condition=Established --all crd --timeout=300s
+
+      - name: Create and apply the Kubernetes secrets
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          CLIENT_URL: ${{ secrets.CLIENT_URL }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: |
+          cat <<EOF > k8s/app-secrets-filled.yaml
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: app-secrets
+          type: Opaque
+          data:
+            MONGODB_URI: $(echo -n "$MONGODB_URI" | base64 -w 0)
+            GOOGLE_CLIENT_ID: $(echo -n "$GOOGLE_CLIENT_ID" | base64 -w 0)
+            GOOGLE_CLIENT_SECRET: $(echo -n "$GOOGLE_CLIENT_SECRET" | base64 -w 0)
+            CLIENT_URL: $(echo -n "$CLIENT_URL" | base64 -w 0)
+            SESSION_SECRET: $(echo -n "$SESSION_SECRET" | base64 -w 0)
+            UPSTASH_REDIS_REST_URL: $(echo -n "$UPSTASH_REDIS_REST_URL" | base64 -w 0)
+            UPSTASH_REDIS_REST_TOKEN: $(echo -n "$UPSTASH_REDIS_REST_TOKEN" | base64 -w 0)
+            GEMINI_API_KEY: $(echo -n "$GEMINI_API_KEY" | base64 -w 0)
+            RESEND_API_KEY: $(echo -n "$RESEND_API_KEY" | base64 -w 0)
+            STRIPE_SECRET_KEY: $(echo -n "$STRIPE_SECRET_KEY" | base64 -w 0)
+            STRIPE_WEBHOOK_SECRET: $(echo -n "$STRIPE_WEBHOOK_SECRET" | base64 -w 0)
+          EOF
+          kubectl apply -f k8s/app-secrets-filled.yaml
+          rm k8s/app-secrets-filled.yaml  # Clean up the filled secret file
+
+      - name: Apply kubernetes manifests
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f k8s/cluster-issuer.yaml
+
+      - name: Apply ClusterIssuer
+        run: kubectl apply -f k8s/cluster-issuer.yaml
+
+      - name: Check deployment status
+        run: |
+          kubectl rollout status deployment/node-app
+          kubectl get pods
+          kubectl get services
+          kubectl get ingress
+
+      - name: Check node-app logs
+        if: failure()
+        run: |
+          kubectl logs -l app=node-app --tail=
+
+      - name: Diagonstic Information
+        if: failure()
+        run: |
+          kubectl get namespaces
+          kubectl get pods --all-namespaces
+          kubectl get crds
+          kubectl describe clusterissuer letsencrypt-prod

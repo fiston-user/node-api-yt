@@ -19,7 +19,7 @@ spec:
             - containerPort: 8080
           envFrom:
             - secretRef:
-              name: app-secrets
+                name: app-secrets
       imagePullSecrets:
         - name: registry-node-js-registry
     

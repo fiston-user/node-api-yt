@@ -90,7 +90,7 @@ jobs:
 
       - name: Check pod status
         run: |
-          kubectl get pods -l app=node-app --o wide
+          kubectl get pods -l app=node-app -o wide
           kubectl describe pods -l app=node-app
 
       - name: Check deployment status

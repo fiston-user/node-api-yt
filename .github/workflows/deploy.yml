@@ -28,20 +28,35 @@ jobs:
       - name: Save DigitalOcean kubeconfig
         run: doctl kubernetes cluster kubeconfig save digital-ocean-cluster
 
+      - name: Delete existing resources
+        run: |
+          kubectl delete deployment node-app --ignore-not-found
+          kubectl delete service node-app-service --ignore-not-found
+          kubectl delete ingress node-app-ingress --ignore-not-found
+          kubectl delete secret app-secrets --ignore-not-found
+          kubectl delete secret registry-digitaloceanregistry --ignore-not-found
+        continue-on-error: true
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry registry-digitaloceanregistry \
+            --docker-server=registry.digitalocean.com \
+            --docker-username=${{ secrets.DIGITALOCEAN_USERNAME }} \
+            --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+            --docker-email=your-email@example.com
+
       - name: Update deployment file
         env:
           REGISTRY_NAME: digitaloceanregistry
         run: |
           sed -i 's|image: registry.digitalocean.com/digitaloceanregistry/node-app:.*|image: registry.digitalocean.com/digitaloceanregistry/node-app:'"${GITHUB_SHA::8}"'|' k8s/deployment.yaml
 
-      - name: Install cert-manager
+      - name: Apply Kubernetes manifests
         run: |
-          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
-          kubectl wait --for=condition=Ready pods -n cert-manager --all --timeout=300s
-
-      - name: Wait for cert-manager CRDs
-        run: |
-          kubectl wait --for=condition=Established --all crd --timeout=300s
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f k8s/cluster-issuer.yaml
 
       - name: Create and apply Kubernetes secrets
         env:
@@ -79,16 +94,6 @@ jobs:
           kubectl apply -f k8s/app-secrets-filled.yaml
           rm k8s/app-secrets-filled.yaml  # Clean up the filled secret file
 
-      - name: Apply Kubernetes manifests
-        run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/ingress.yaml
-          kubectl apply -f k8s/cluster-issuer.yaml
-
-      - name: Apply ClusterIssuer
-        run: kubectl apply -f k8s/cluster-issuer.yaml
-
       - name: Check deployment status
         run: |
           kubectl rollout status deployment/node-app
@@ -96,15 +101,16 @@ jobs:
           kubectl get services
           kubectl get ingress
 
-      - name: Check node-app logs
+      - name: Check pod logs
         if: failure()
         run: |
-          kubectl logs -l app=node-app --tail=100
+          for pod in $(kubectl get pods -l app=node-app -o jsonpath='{.items[*].metadata.name}'); do
+            echo "Logs for $pod:"
+            kubectl logs $pod
+            echo "-------------------"
+          done
 
-      - name: Diagnostic Information
+      - name: Describe deployment
         if: failure()
         run: |
-          kubectl get namespaces
-          kubectl get pods --all-namespaces
-          kubectl get crds
-          kubectl describe clusterissuer letsencrypt-prod
+          kubectl describe deployment node-app

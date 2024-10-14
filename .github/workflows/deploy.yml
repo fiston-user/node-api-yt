@@ -140,7 +140,7 @@ jobs:
             echo "-------------------"
           done
 
-      - name: Describe deployment (if failure)
+      - name: Describee deployment (if failure)
         if: failure()
         run: |
           kubectl describe deployment node-app

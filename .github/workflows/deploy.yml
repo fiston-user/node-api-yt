@@ -57,7 +57,7 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
-          cat <<EOF | k8s/app-secrets-filled.yaml
+          cat <<EOF > k8s/app-secrets-filled.yaml
           apiVersion: v1
           kind: Secret
           metadata:

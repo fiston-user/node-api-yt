@@ -43,7 +43,6 @@ jobs:
             --docker-server=registry.digitalocean.com \
             --docker-username=${{ secrets.DIGITALOCEAN_USERNAME }} \
             --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
-            --docker-email=your-email@example.com
 
       - name: Update deployment file
         env:
@@ -101,7 +100,38 @@ jobs:
           kubectl get services
           kubectl get ingress
 
+      - name: Wait for LoadBalancer external IP
+        run: |
+          echo "Waiting for LoadBalancer external IP..."
+          while [ -z $(kubectl get service node-app-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}') ]; do
+            sleep 10
+          done
+          echo "External IP: $(kubectl get service node-app-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+
+      - name: Check ingress status
+        run: |
+          echo "Ingress status:"
+          kubectl describe ingress node-app-ingress
+
       - name: Check pod logs
+        run: |
+          echo "Pod logs:"
+          kubectl logs -l app=node-app --tail=100
+
+      - name: Deployment summary
+        run: |
+          echo "Deployment Summary:"
+          echo "-------------------"
+          echo "Pods:"
+          kubectl get pods -l app=node-app
+          echo "\nServices:"
+          kubectl get services
+          echo "\nIngress:"
+          kubectl get ingress
+          echo "\nExternal IP:"
+          kubectl get service node-app-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+
+      - name: Check pod logs (if failure)
         if: failure()
         run: |
           for pod in $(kubectl get pods -l app=node-app -o jsonpath='{.items[*].metadata.name}'); do
@@ -110,7 +140,7 @@ jobs:
             echo "-------------------"
           done
 
-      - name: Describe deployment
+      - name: Describe deployment (if failure)
         if: failure()
         run: |
           kubectl describe deployment node-app

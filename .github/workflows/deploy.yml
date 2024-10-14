@@ -18,6 +18,22 @@ jobs:
       - name: Log in to DO Container registry
         run: doctl registry login --expiry-seconds 600
 
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry registry-digitaloceanregistry \
+            --docker-server=registry.digitalocean.com \
+            --docker-username=${{ secrets.DIGITALOCEAN_USERNAME }} \
+            --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        continue-on-error: true
+    
+      - name: Update image pull secret
+        run: |
+            kubectl delete secret registry-digitaloceanregistry
+            kubectl create secret docker-registry registry-digitaloceanregistry \
+              --docker-server=registry.digitalocean.com \
+              --docker-username=${{ secrets.DIGITALOCEAN_USERNAME }} \
+              --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
       - name: Build and push Docker image
         env:
           REGISTRY_NAME: digitaloceanregistry

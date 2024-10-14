@@ -1,4 +1,4 @@
-name: Deploy to Digital Ocean
+name: Deploy to DigitalOcean Kubernetes
 
 on:
   push:
@@ -10,29 +10,13 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install dotcl
+      - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Log in to DO Container registry
+      - name: Log in to DigitalOcean Container Registry
         run: doctl registry login --expiry-seconds 600
-
-      - name: Create image pull secret
-        run: |
-          kubectl create secret docker-registry registry-digitaloceanregistry \
-            --docker-server=registry.digitalocean.com \
-            --docker-username=${{ secrets.DIGITALOCEAN_USERNAME }} \
-            --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        continue-on-error: true
-    
-      - name: Update image pull secret
-        run: |
-            kubectl delete secret registry-digitaloceanregistry
-            kubectl create secret docker-registry registry-digitaloceanregistry \
-              --docker-server=registry.digitalocean.com \
-              --docker-username=${{ secrets.DIGITALOCEAN_USERNAME }} \
-              --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Build and push Docker image
         env:
@@ -55,7 +39,7 @@ jobs:
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
           kubectl wait --for=condition=Ready pods -n cert-manager --all --timeout=300s
 
-      - name: Wait for cert-manager tCRDS
+      - name: Wait for cert-manager CRDs
         run: |
           kubectl wait --for=condition=Established --all crd --timeout=300s
 
@@ -90,9 +74,10 @@ jobs:
             GEMINI_API_KEY: $(echo -n "$GEMINI_API_KEY" | base64 -w 0)
             RESEND_API_KEY: $(echo -n "$RESEND_API_KEY" | base64 -w 0)
             STRIPE_SECRET_KEY: $(echo -n "$STRIPE_SECRET_KEY" | base64 -w 0)
+            STRIPE_WEBHOOK_SECRET: $(echo -n "$STRIPE_WEBHOOK_SECRET" | base64 -w 0)
           EOF
           kubectl apply -f k8s/app-secrets-filled.yaml
-          rm k8s/app-secrets-filled.yaml #clean up the filled secrets file
+          rm k8s/app-secrets-filled.yaml  # Clean up the filled secret file
 
       - name: Apply Kubernetes manifests
         run: |
@@ -104,11 +89,6 @@ jobs:
       - name: Apply ClusterIssuer
         run: kubectl apply -f k8s/cluster-issuer.yaml
 
-      - name: Check pod status
-        run: |
-          kubectl get pods -l app=node-app -o wide
-          kubectl describe pods -l app=node-app
-
       - name: Check deployment status
         run: |
           kubectl rollout status deployment/node-app
@@ -116,16 +96,12 @@ jobs:
           kubectl get services
           kubectl get ingress
 
-      - name: Check cluster events
-        run: |
-          kubectl get events -sort-by='.lastTimestamp'
-
       - name: Check node-app logs
         if: failure()
         run: |
           kubectl logs -l app=node-app --tail=100
 
-      - name: Diagonostic Information
+      - name: Diagnostic Information
         if: failure()
         run: |
           kubectl get namespaces

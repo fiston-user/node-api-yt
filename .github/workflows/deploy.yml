@@ -88,13 +88,22 @@ jobs:
       - name: Apply ClusterIssuer
         run: kubectl apply -f k8s/cluster-issuer.yaml
 
+      - name: Check pod status
+        run: |
+          kubectl get pods -l app=node-app --o wide
+          kubectl describe pods -l app=node-app
+
       - name: Check deployment status
         run: |
           kubectl rollout status deployment/node-app
           kubectl get pods
           kubectl get services
           kubectl get ingress
-        
+
+      - name: Check cluster events
+        run: |
+          kubectl get events -sort-by='.lastTimestamp'
+
       - name: Check node-app logs
         if: failure()
         run: |
@@ -107,4 +116,3 @@ jobs:
           kubectl get pods --all-namespaces
           kubectl get crds
           kubectl describe clusterissuer letsencrypt-prod
-

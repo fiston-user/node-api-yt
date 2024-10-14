@@ -1,4 +1,4 @@
-name: Deploy to DigitalOcean Kubernetes
+name: Deploy to Digital Ocean
 
 on:
   push:
@@ -10,40 +10,40 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install doctl
+      - name: Install dotcl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Log in to the DigitalOcean Container Registry
+      - name: Log in to DO Container registry
         run: doctl registry login --expiry-seconds 600
 
-      - name: Build and push container image
+      - name: Build and push Docker image
         env:
-          REGISTRY_NAME: node-js-registry
+          REGISTRY_NAME: digitaloceanregistry
         run: |
           docker build -t registry.digitalocean.com/${REGISTRY_NAME}/node-app:${GITHUB_SHA::8} .
           docker push registry.digitalocean.com/${REGISTRY_NAME}/node-app:${GITHUB_SHA::8}
 
       - name: Save DigitalOcean kubeconfig
-        run: doctl kubernetes cluster kubeconfig save nodejscluster
+        run: doctl kubernetes cluster kubeconfig save digital-ocean-cluster
 
       - name: Update deployment file
         env:
-          REGISTRY_NAME: node-js-registry
+          REGISTRY_NAME: digitaloceanregistry
         run: |
-          sed -i 's|image: registry.digitalocean.com/${REGISTRY_NAME}/node-app:.*|image: registry.digitalocean.com/${REGISTRY_NAME}/node-app:'${GITHUB_SHA::8}'|' k8s/deployment.yaml
+          sed -i 's|image: registry.digitalocean.com/digitaloceanregistry/node-app:.*|image: registry.digitalocean.com/digitaloceanregistry/node-app:'"${GITHUB_SHA::8}"'|' k8s/deployment.yaml
 
-      - name: Install Cert Manager
+      - name: Install cert-manager
         run: |
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
           kubectl wait --for=condition=Ready pods -n cert-manager --all --timeout=300s
 
-      - name: Wait for cert-manager
+      - name: Wait for cert-manager tCRDS
         run: |
           kubectl wait --for=condition=Established --all crd --timeout=300s
 
-      - name: Create and apply the Kubernetes secrets
+      - name: Create and apply Kubernetes secrets
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
@@ -57,7 +57,7 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
-          cat <<EOF > k8s/app-secrets-filled.yaml
+          cat <<EOF | k8s/app-secrets-filled.yaml
           apiVersion: v1
           kind: Secret
           metadata:
@@ -74,12 +74,11 @@ jobs:
             GEMINI_API_KEY: $(echo -n "$GEMINI_API_KEY" | base64 -w 0)
             RESEND_API_KEY: $(echo -n "$RESEND_API_KEY" | base64 -w 0)
             STRIPE_SECRET_KEY: $(echo -n "$STRIPE_SECRET_KEY" | base64 -w 0)
-            STRIPE_WEBHOOK_SECRET: $(echo -n "$STRIPE_WEBHOOK_SECRET" | base64 -w 0)
           EOF
           kubectl apply -f k8s/app-secrets-filled.yaml
-          rm k8s/app-secrets-filled.yaml  # Clean up the filled secret file
+          rm k8s/app-secrets-filled.yaml #clean up the filled secrets file
 
-      - name: Apply kubernetes manifests
+      - name: Apply Kubernetes manifests
         run: |
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
@@ -91,38 +90,21 @@ jobs:
 
       - name: Check deployment status
         run: |
-          kubectl rollout status deployment/node-app --timeout=300s
+          kubectl rollout status deployment/node-app
           kubectl get pods
           kubectl get services
           kubectl get ingress
-
-      - name: Diagnose Deployment Status
-        if: failure()
-        run: |
-          echo "Deployment failed. Check the logs for more information."
-          kubectl rollout status deployment/node-app
-          echo "Pod Details:"
-          kubectl get pods -l app=node-app -o wide
-          echo "Pod Logs:"
-          kubectl logs -l app=node-app --all-containers --tail=100
-          echo "Pod Events":
-          kubectl get events --field-selector involvedObject.kind=Pod
-          echo "Deployment Details:"
-          kubectl describe deployment node-app
-          echo "Node Status"
-          kubectl get nodes
-          echo "Persitent Volume Status"
-          kubectl get pv,pvc
-
+        
       - name: Check node-app logs
         if: failure()
         run: |
           kubectl logs -l app=node-app --tail=100
 
-      - name: Diagonstic Information
+      - name: Diagonostic Information
         if: failure()
         run: |
           kubectl get namespaces
           kubectl get pods --all-namespaces
           kubectl get crds
           kubectl describe clusterissuer letsencrypt-prod
+
